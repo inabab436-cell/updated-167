@@ -81,28 +81,12 @@ export function resolveShippingCoverage(
   const list = (zones ?? []).filter(Boolean);
   const clean = (texts ?? []).filter(Boolean) as string[];
   if (!list.length || !clean.length) return { status: "unknown", place: null };
-
-  // The CURRENT message decides. A place named now that no recorded zone
-  // covers is uncovered even when an earlier message named a covered one —
-  // otherwise history keeps the old (covered) verdict alive and the change of
-  // governorate goes unnoticed.
-  const current = clean[0] ?? "";
-  const currentPlace = namedPlace(list, current);
-  if (currentPlace) {
-    const cm = matchShippingZone(list, [current]);
-    if (cm.zone && !cm.fallbackSingleZone) {
-      return { status: "covered", place: cm.zone.region ?? cm.zone.country ?? null };
-    }
-    return { status: "uncovered", place: currentPlace };
-  }
-
   const match = matchShippingZone(list, clean);
   if (match.zone) return { status: "covered", place: match.zone.region ?? match.zone.country ?? null };
   const place = namedPlace(list, clean.join(" "));
   if (place || match.conflict) return { status: "uncovered", place: place ?? null };
   return { status: "unknown", place: null };
 }
-
 
 export interface ShippingLookupInput {
   zones: ShippingZone[];
