@@ -1861,9 +1861,18 @@ export const Route = createFileRoute("/api/chat-ai")({
                 confirmedPhone ?? (turnPhone?.valid ? turnPhone.phone : null),
                 turnProfile?.address ?? customer?.address,
               ].filter(Boolean);
-              if (before.status === "uncovered" && known.length) {
-                shippingPriorityBlock =
-                  "\n\nالعميل غيّر منطقته لمنطقة مغطاة بالشحن بعد ما كانت غير مغطاة. البيانات اللي العميل قالها قبل كده لسه صالحة: اقرأها له مرة واحدة (الاسم والرقم والعنوان اللي عندك) واسأله سؤال واحد قصير إذا كانت دي البيانات اللي نسجّل بيها الطلب، من غير ما تطلبها من الأول تاني.";
+              if (before.status === "uncovered") {
+                // The area blocked everything for a turn; now that it is
+                // covered the flow must RESUME exactly where it stopped. If a
+                // field is still wrong or incomplete, fixing it comes first —
+                // never a read-back that treats the data as complete.
+                if (identityBlockForTurn) {
+                  shippingPriorityBlock =
+                    "\n\nالعميل غيّر منطقته لمنطقة مغطاة بالشحن بعد ما كانت غير مغطاة. اكمل من النقطة اللي وقفت عندها: فيه بيانات لسه ناقصة أو غير صحيحة موضّحة في قسم التحقّق الفوري، اطلب تصحيحها الآن في نفس الرد، ومتطلبش البيانات الصحيحة من الأول تاني.";
+                } else if (known.length) {
+                  shippingPriorityBlock =
+                    "\n\nالعميل غيّر منطقته لمنطقة مغطاة بالشحن بعد ما كانت غير مغطاة. البيانات اللي العميل قالها قبل كده لسه صالحة: اقرأها له مرة واحدة (الاسم والرقم والعنوان اللي عندك) واسأله سؤال واحد قصير إذا كانت دي البيانات اللي نسجّل بيها الطلب، من غير ما تطلبها من الأول تاني.";
+                }
               }
             }
           } catch (e) {
