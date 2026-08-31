@@ -1569,8 +1569,25 @@ export const Route = createFileRoute("/api/chat-ai")({
                   ? turnPhone.phone
                   : null;
 
+              // A number the customer already sent but that never became valid
+              // (too short / wrong prefix) is not stored on the customer row and
+              // is not in THIS message, so without this fallback the pending
+              // correction silently disappears the moment the turn is about
+              // something else (e.g. changing the shipping governorate).
+              let lingeringPhone: string | null = null;
+              if (!confirmedPhone && !turnPhone?.phone && !turnProfile.phone && !customer.phone) {
+                const { extractPhoneCandidate } = await import("@/lib/identity-intake");
+                for (let i = previousCustomerTexts.length - 1; i >= 0; i -= 1) {
+                  const c = extractPhoneCandidate(previousCustomerTexts[i] ?? "");
+                  if (c) {
+                    lingeringPhone = c;
+                    break;
+                  }
+                }
+              }
+
               const effectivePhone =
-                confirmedPhone ?? turnPhone?.phone ?? turnProfile.phone ?? customer.phone;
+                confirmedPhone ?? turnPhone?.phone ?? turnProfile.phone ?? customer.phone ?? lingeringPhone;
 
               const identityIssues = checkIdentityIntake({
                 name: turnProfile.name ?? customer.name,
