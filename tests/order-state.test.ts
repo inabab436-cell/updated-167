@@ -120,4 +120,13 @@ describe("chat route wiring", () => {
     expect(checkIdx).toBeGreaterThan(-1);
     expect(commitIdx).toBeGreaterThan(checkIdx);
   });
+
+  it("bounds every AI gateway call so a helper cannot strand the agent run", () => {
+    const gatewayCalls = src.split('"https://ai.gateway.lovable.dev/v1/chat/completions"').length - 1;
+    const gatewaySignals = src.match(/signal: AbortSignal\.timeout\(/g)?.length ?? 0;
+    expect(gatewayCalls).toBe(4);
+    expect(gatewaySignals).toBeGreaterThanOrEqual(gatewayCalls);
+    expect(src).toContain("signal: AbortSignal.timeout(25_000)");
+    expect(src).toContain("signal: AbortSignal.timeout(45_000)");
+  });
 });

@@ -434,6 +434,9 @@ async function extractProfileFieldsWithAI(
   try {
     const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
+      // Profile extraction is advisory. If the provider stalls, abandon this
+      // helper and let the main agent continue with persisted order state.
+      signal: AbortSignal.timeout(25_000),
       headers: {
         "Content-Type": "application/json",
         "Lovable-API-Key": lovableApiKey,
@@ -3834,6 +3837,7 @@ export const Route = createFileRoute("/api/chat-ai")({
             try {
               aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
                 method: "POST",
+                signal: AbortSignal.timeout(45_000),
                 headers: {
                   "Content-Type": "application/json",
                   "Lovable-API-Key": lovableApiKey,
@@ -3930,6 +3934,7 @@ export const Route = createFileRoute("/api/chat-ai")({
                     "https://ai.gateway.lovable.dev/v1/chat/completions",
                     {
                       method: "POST",
+                      signal: AbortSignal.timeout(15_000),
                       headers: {
                         "Content-Type": "application/json",
                         "Lovable-API-Key": lovableApiKey,
@@ -4172,6 +4177,7 @@ export const Route = createFileRoute("/api/chat-ai")({
               try {
                 const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
                   method: "POST",
+                  signal: AbortSignal.timeout(25_000),
                   headers: {
                     "Content-Type": "application/json",
                     "Lovable-API-Key": lovableApiKey as string,
