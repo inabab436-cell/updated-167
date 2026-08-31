@@ -1569,8 +1569,25 @@ export const Route = createFileRoute("/api/chat-ai")({
                   ? turnPhone.phone
                   : null;
 
+              // A number the customer already sent but that never became valid
+              // (too short / wrong prefix) is not stored on the customer row and
+              // is not in THIS message, so without this fallback the pending
+              // correction silently disappears the moment the turn is about
+              // something else (e.g. changing the shipping governorate).
+              let lingeringPhone: string | null = null;
+              if (!confirmedPhone && !turnPhone?.phone && !turnProfile.phone && !customer.phone) {
+                const { extractPhoneCandidate } = await import("@/lib/identity-intake");
+                for (let i = previousCustomerTexts.length - 1; i >= 0; i -= 1) {
+                  const c = extractPhoneCandidate(previousCustomerTexts[i] ?? "");
+                  if (c) {
+                    lingeringPhone = c;
+                    break;
+                  }
+                }
+              }
+
               const effectivePhone =
-                confirmedPhone ?? turnPhone?.phone ?? turnProfile.phone ?? customer.phone;
+                confirmedPhone ?? turnPhone?.phone ?? turnProfile.phone ?? customer.phone ?? lingeringPhone;
 
               const identityIssues = checkIdentityIntake({
                 name: turnProfile.name ?? customer.name,
@@ -1844,9 +1861,18 @@ export const Route = createFileRoute("/api/chat-ai")({
                 confirmedPhone ?? (turnPhone?.valid ? turnPhone.phone : null),
                 turnProfile?.address ?? customer?.address,
               ].filter(Boolean);
-              if (before.status === "uncovered" && known.length) {
-                shippingPriorityBlock =
-                  "\n\nالعميل غيّر منطقته لمنطقة مغطاة بالشحن بعد ما كانت غير مغطاة. البيانات اللي العميل قالها قبل كده لسه صالحة: اقرأها له مرة واحدة (الاسم والرقم والعنوان اللي عندك) واسأله سؤال واحد قصير إذا كانت دي البيانات اللي نسجّل بيها الطلب، من غير ما تطلبها من الأول تاني.";
+              if (before.status === "uncovered") {
+                // The area blocked everything for a turn; now that it is
+                // covered the flow must RESUME exactly where it stopped. If a
+                // field is still wrong or incomplete, fixing it comes first —
+                // never a read-back that treats the data as complete.
+                if (identityBlockForTurn) {
+                  shippingPriorityBlock =
+                    "\n\nالعميل غيّر منطقته لمنطقة مغطاة بالشحن بعد ما كانت غير مغطاة. اكمل من النقطة اللي وقفت عندها: فيه بيانات لسه ناقصة أو غير صحيحة موضّحة في قسم التحقّق الفوري، اطلب تصحيحها الآن في نفس الرد، ومتطلبش البيانات الصحيحة من الأول تاني.";
+                } else if (known.length) {
+                  shippingPriorityBlock =
+                    "\n\nالعميل غيّر منطقته لمنطقة مغطاة بالشحن بعد ما كانت غير مغطاة. البيانات اللي العميل قالها قبل كده لسه صالحة: اقرأها له مرة واحدة (الاسم والرقم والعنوان اللي عندك) واسأله سؤال واحد قصير إذا كانت دي البيانات اللي نسجّل بيها الطلب، من غير ما تطلبها من الأول تاني.";
+                }
               }
             }
           } catch (e) {
