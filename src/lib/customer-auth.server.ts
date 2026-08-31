@@ -267,54 +267,80 @@ export async function sendCustomerOtp(
   };
 }
 
-/** Resolve or create the canonical customer row for (merchant, email). */
+/**
+ * Resolve or create the canonical customer row for (merchant, email).
+ *
+ * `customers_merchant_visitor_uidx` makes (merchant_id, visitor_id) unique when
+ * visitor_id IS NOT NULL, so a visitor_id already owned by another row must
+ * never be copied onto / inserted into a second row.
+ */
 async function upsertCustomerByEmail(
   admin: Admin,
   merchantId: string,
   email: string,
   visitorId?: string | null,
 ): Promise<string> {
+  // Who (if anyone) already owns this visitor_id for this merchant?
+  let visitorOwnerId: string | null = null;
+  let visitorOwnerHasEmail = false;
+  if (visitorId) {
+    const { data: owner } = await admin
+      .from("customers")
+      .select("id, email")
+      .eq("merchant_id", merchantId)
+      .eq("visitor_id", visitorId)
+      .maybeSingle();
+    if (owner?.id) {
+      visitorOwnerId = owner.id as string;
+      visitorOwnerHasEmail = Boolean(owner.email);
+    }
+  }
+
   const { data: existing } = await admin
     .from("customers")
     .select("id, email_verified")
     .eq("merchant_id", merchantId)
     .ilike("email", email)
     .maybeSingle();
+
   if (existing?.id) {
+    const existingId = existing.id as string;
     const patch: Record<string, unknown> = {
       email,
       email_verified: true,
       last_seen: new Date().toISOString(),
     };
-    if (visitorId) patch.visitor_id = visitorId;
-    await admin
-      .from("customers")
-      .update(patch)
-      .eq("id", existing.id as string);
-    return existing.id as string;
-  }
-
-  // Try upgrading the visitor-only row for this browser first.
-  if (visitorId) {
-    const { data: shell } = await admin
-      .from("customers")
-      .select("id")
-      .eq("merchant_id", merchantId)
-      .eq("visitor_id", visitorId)
-      .is("email", null)
-      .maybeSingle();
-    if (shell?.id) {
+    // Only claim the visitor_id when it is free or already ours.
+    if (visitorId && (!visitorOwnerId || visitorOwnerId === existingId)) {
+      patch.visitor_id = visitorId;
+    } else if (visitorId && visitorOwnerId && !visitorOwnerHasEmail) {
+      // Release it from the anonymous shell row, then claim it.
       await admin
         .from("customers")
-        .update({
-          email,
-          email_verified: true,
-          last_seen: new Date().toISOString(),
-        })
-        .eq("id", shell.id as string);
-      return shell.id as string;
+        .update({ visitor_id: null })
+        .eq("id", visitorOwnerId);
+      patch.visitor_id = visitorId;
     }
+    await admin.from("customers").update(patch).eq("id", existingId);
+    return existingId;
   }
+
+  // Upgrade the anonymous visitor-only row for this browser, if there is one.
+  if (visitorOwnerId && !visitorOwnerHasEmail) {
+    await admin
+      .from("customers")
+      .update({
+        email,
+        email_verified: true,
+        last_seen: new Date().toISOString(),
+      })
+      .eq("id", visitorOwnerId);
+    return visitorOwnerId;
+  }
+
+  // The visitor_id belongs to a different (email-bearing) customer — this new
+  // customer row must not reuse it, otherwise the unique index is violated.
+  const safeVisitorId = visitorId && !visitorOwnerId ? visitorId : null;
 
   const { data: created, error } = await admin
     .from("customers")
@@ -322,14 +348,23 @@ async function upsertCustomerByEmail(
       merchant_id: merchantId,
       email,
       email_verified: true,
-      visitor_id: visitorId ?? null,
+      visitor_id: safeVisitorId,
       last_seen: new Date().toISOString(),
     })
     .select("id")
     .single();
   if (error || !created?.id) {
+    // Lost a race: another concurrent request created the row first.
+    const { data: raced } = await admin
+      .from("customers")
+      .select("id")
+      .eq("merchant_id", merchantId)
+      .ilike("email", email)
+      .maybeSingle();
+    if (raced?.id) return raced.id as string;
     throw new Error(error?.message || "Could not create customer row.");
   }
+
   return created.id as string;
 }
 

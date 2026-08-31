@@ -153,16 +153,28 @@ async function ensureCustomer(
     .maybeSingle();
   if (existing?.id) return existing as CustomerRow;
 
+  const SELECT_COLS =
+    "id, name, phone, address, city, country, language, tags, notes, total_orders, total_spent, last_order_at";
+
   const { data: created, error } = await supabase
     .from("customers")
     .insert({ merchant_id: merchantId, visitor_id: visitorId })
-    .select(
-      "id, name, phone, address, city, country, language, tags, notes, total_orders, total_spent, last_order_at",
-    )
+    .select(SELECT_COLS)
     .single();
-  if (error) throw error;
+  if (error) {
+    // Concurrent request already created the row (unique visitor index) — reuse it.
+    const { data: raced } = await supabase
+      .from("customers")
+      .select(SELECT_COLS)
+      .eq("merchant_id", merchantId)
+      .eq("visitor_id", visitorId)
+      .maybeSingle();
+    if (raced?.id) return raced as CustomerRow;
+    throw error;
+  }
   return created as CustomerRow;
 }
+
 
 async function getCustomerById(
   supabase: any,
